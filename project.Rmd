@@ -1,0 +1,192 @@
+---
+title: "Practical Machine Learning: project Writeup"
+author: "G. Nevado"
+date: "8 de octubre de 2015"
+output: html_document
+---
+#Practical Machine Learning: project Writeup
+
+##Summary
+In this project, a prediction practice on Human Activity Recognition will be held by using different models and algorithms. The goal is to predict human movements from the information of different sensors that register partial movements. One of the models, the one with the best accuracy, will be applied to predict/classify 20 movements based on 20 observations of partial movements registered from the sensors.
+
+##Citations
+Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6.
+Read more: http://groupware.les.inf.puc-rio.br/har#literature#ixzz3o5malI6d
+
+##Data loading and cleaning. Feature's selection.
+A previous data loading can show how datasets are. Both datasets consist of 160 features. Training data set has 19622 observations and testing dataset has 20 observations. 
+Datasets were first downloaded to working directory from this sources:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+Due to the large amount of variables and observations, no figures for exploratory analysis are given.
+```{r, eval=FALSE}
+pml_raw_data <- read.csv("pml-training.csv", verbose)
+str(pml_raw_data)
+pml_raw_data <- read.csv("pml-testing.csv")
+str(pml_raw_data)
+rm(pml_raw_data)
+```
+Some features have all or most of values being "NA". There are factor columns with 2 levels being "#DIV/0!" and "". There are factor columns with 3 levels being "#DIV/0!", "" (empty) and "0.0".  
+Data loading will be done considering the strings "NA", "#DIV/0!" and "" as missing values (NA).   
+Data cleaning will be done discarding any feature with NA values. Features have 0 NA values or a very high number (>19000) of NA values.   Also, first 7 features don't seem to be useful for this analysis (information about user and times of observation) and are also discarded.  
+Those features are discarded in training, testing and newdata sets.
+```{r, eval=FALSE}
+pml_data <- read.csv("pml-training.csv", na.strings=c("NA","#DIV/0!",""))
+pml_newdata <- read.csv("pml-testing.csv", na.strings=c("NA","#DIV/0!",""))
+colnames(pml_newdata)[colnames(pml_newdata)=="problem_id"] <- "classe"
+NAcols <- apply(pml_data, 2, function(x) sum(is.na(x)))
+pml_data <- pml_data[,names(NAcols[NAcols==0])]
+pml_newdata <- pml_newdata[,names(NAcols[NAcols==0])]
+pml_data <- pml_data[,8:60]
+pml_newdata <- pml_newdata[,8:60]
+```
+Data is splitted into 2 dataset: training (70%) and testing (30%)
+No zero or near zero-variance of features is detected. Any of the features can't be discarded through this analysis.
+Some features can be discarded from the results of a high correlation analysis on the training data set. These features are discarded in training, testing and newdata sets.
+For next steps of analysis, **caret** package is required, as is any other package required by caret (as rpart, randomForest, e1071, ggplot2, etc.).
+```{r, eval=FALSE}
+library(caret)
+set.seed(2425)
+inTrain <- createDataPartition(y=pml_data$classe, p=0.7, list=FALSE)
+pml_training <- pml_data[inTrain,]
+pml_testing <- pml_data[-inTrain,]
+nearzerovariance <- nearZeroVar(pml_training[,-53], saveMetrics = TRUE)
+correlationMatrix <- cor(pml_training[,-53])
+highlyCorrelated <- findCorrelation(correlationMatrix, cutoff=0.9)
+names(pml_testing[,highlyCorrelated])
+pml_training <- pml_training[,-highlyCorrelated]
+pml_testing <- pml_testing[,-highlyCorrelated]
+pml_newdata <- pml_newdata[,-highlyCorrelated]
+```
+
+##ML strategy
+Different models and algorithms will be used for training to check accuracy on training and testing datasets, by using different parameters for pre-processing and resampling.
+**k-Nearest Neighbors**  
+Model M01 Resampling: method = cv, number=10; Pre-process: pca  
+Model M02 Resampling: method = cv, number=10; Pre-process: center, scale  
+Model M03 Resampling: method = cv, number=10; Pre-process: pca, center, scale  
+**Recursive Partitioning**  
+Model M04 Resampling: method = cv, number=10; Pre-process: center, scale  
+Model M05 Resampling: method = cv, number=10; Pre-process: pca  
+**Random Forests**  
+Model M06 Resampling: method = cv, number=10; Pre-process: center, scale  
+Model M07 Resampling: method = cv, number=10; Pre-process: NONE  
+**Support Vector Machine (Radial Basis Function kernel)**  
+Model M08 Resampling: method = cv, number=10; Pre-process: center, scale; tuneLength = 1  
+Model M09 Resampling: method = cv, number=10; Pre-process: center, scale; tuneLength = 5  
+Model M10 Resampling: method = cv, number=10; Pre-process: center, scale; tuneLength = 9  
+Model M11 Resampling: method = cv, number=10; Pre-process: center, scale; tuneLength = 15  
+Model M12 Resampling: method = bootstrapped (25 reps); Pre-process: center, scale; tuneLength = 3  
+
+Validation on testing dataset will be also done and confussion matrix for each model will be calculated to check accuracy on testing dataset.
+
+Code for each training and testing model is as follows (for instance, for model M0):
+```{r, eval=FALSE}
+set.seed(12125)
+modelfit <- train(classe ~ ., dat = pml_training, method = "knn", preProcess=c("pca"), 
+                       trControl = trainControl(method = 'cv', number = 10))
+prediction <- predict(modelfit,pml_testing)
+confMatrix <- confusionMatrix(prediction,pml_testing$classe)
+```
+
+Calls to train function in each of the models are as follows:
+```{r, eval=FALSE}
+# KNN
+modelfit <- train(classe ~ ., dat = pml_training, method = "knn", preProcess=c("pca"), 
+                  trControl = trainControl(method = 'cv', number = 10))
+modelfit <- train(classe ~ ., dat = pml_training, method = "knn", preProc=c("center", "scale"), 
+                  trControl = trainControl(method = 'cv', number = 10))
+modelfit <- train(classe ~ ., dat = pml_training, method = "knn", preProc=c("pca", "center", "scale"), 
+                  trControl = trainControl(method = 'cv', number = 10))
+## RPART
+modelfit <- train(classe ~ ., data=pml_training, method="rpart", 
+                  trControl = trainControl(method = 'cv', number = 10), preProc = c("center", "scale"))
+modelfit <- train(classe ~ ., data=pml_training, method="rpart", 
+                  trControl = trainControl(method = 'cv', number = 10), preProc = c("pca"))
+# RF
+modelfit <- train(classe ~ ., data=pml_training, method="rf",
+                  trControl = trainControl(method = 'cv', number = 10), preProc = c("center", "scale"))
+modelfit <- train(classe ~ ., data=pml_training, method="rf")
+##Radial SVM 
+modelfitSVM_1 <- train(classe ~ ., data = pml_training, method = "svmRadial", tuneLength = 1,
+                       trControl = trainControl(method = 'cv', number = 10), preProc = c("center", "scale"))
+modelfitSVM_2 <- train(classe ~ ., data = pml_training, method="svmRadial", tuneLength = 5, 
+                       trControl = trainControl(method = 'cv', number = 10), preProc = c("center", "scale"))
+modelfitSVM_3 <- train(classe ~ ., data = pml_training, method="svmRadial", tuneLength = 9, 
+                       trControl = trainControl(method = 'cv', number = 10), preProc = c("center", "scale"))
+modelfitSVM_4 <- train(classe ~ ., data = pml_training, method="svmRadial", tuneLength = 15, 
+                       trControl = trainControl(method = 'cv', number = 10), preProc = c("center", "scale"))
+modelfitSVM_5 <- train(classe ~ ., data = pml_training, method="svmRadial", tuneLength = 3, 
+                       preProc = c("center", "scale"))
+```
+##Results of training and testing models 
+A summary of the results is shown next:
+
+**Model M01** 
+Training: Processing time 41.35, Accuracy 0.9543567  
+Testing: Accuracy 0.9731521  
+**Model M02**  
+Training: Processing time 128.72, Accuracy 0.9614900  
+Testing: Accuracy 0.9770603  
+**Model M03**  
+Training: Processing time 39.56, Accuracy 0.9543567  
+Testing: Accuracy 0.973322  
+**Model M04**  
+Training: Processing time 16.16, Accuracy 0.5193497  
+Testing: Accuracy 0.5858963  
+**Model M05**  
+Training: Processing time 19.57, Accuracy 0.3853816  
+Testing: Accuracy 0.3908241  
+**Model M06**  
+Training: Processing time 2093.36, Accuracy 0.9923574, mtry = 24  
+Testing: Accuracy 0.9983008  
+**Model M07**  
+Training: Processing time 5447.60, Accuracy 0.9890912, mtry = 24  
+Testing: Accuracy 0.9983008  
+**Model M08**  
+Training: Processing time 766.60 , Accuracy 0.866493, C = 0.25  
+Testing: Accuracy 0.880034  
+**Model M09**  
+Training: Processing time 2177.93, Accuracy 0.9652774, C = 4  
+Testing: Accuracy 0.9716228  
+**Model M10**  
+Training: Processing time 2944.98, Accuracy 0.9895905, C = 64  
+Testing: Accuracy 0.9954121  
+**Model M11**  
+Training: Processing time 3914.13, Accuracy 0.9924292, C = 256  
+Testing: Accuracy 0.9972812  
+**Model M12**  
+Training: Processing time 5412.73, Accuracy 0.9279656, C = 1  
+Testing: Accuracy 0.9384877  
+
+##Models selection for prediction
+From the results, and for comparition objectives, next decission are made to choose from the models:  
+* Main decission criteria will be accuracy on testing.  
+* The "best" model from each method will be selected.  
+* Based on the low accuracy obtained, model M04 and M05 (Recursive Partinioning) are not selected.  
+
+Models M02, M06 and M11 are then selected to make predictions on original pml-testing dataset, with 20 observations. For each of the 3 models, next call to predict function is done:
+```{r, eval=FALSE}
+predict(modelfit,newdata=pml_newdata)
+```
+Clasification for each of the 20 observations of original pml-testing dataset, for each of the models, are shown next:  
+* M02 B A C A A B D B A A D C B A E E A B B B (KNN, Accuracy 0.9770603)  
+* **M06 B A B A A E D B A A B C B A E E A B B B (RF, Accuracy 0.9983008)**  
+* M11 B A B A A B D B A A B C B A E E A B B B (RadialSVM, Accuracy 0.9972812)   
+
+Based on accuracy criteria, **prediction results for model M06 will be submitted** in the second part of this project.  
+
+##Files for submission
+Files with the 20 answers will be created using the function proposed in the instructions of the project submission, as shown in the next chunk of code
+```{r, eval=FALSE}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+# Model used is M06
+# Answers have to be a char vector
+answers <- as.character(predict(modelfit,newdata=pml_newdata))
+```
