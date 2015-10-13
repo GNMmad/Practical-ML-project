@@ -11,5 +11,6 @@ Datasets files that were used in the projecto for training, testing and predicti
 The 20 text files  have been used in the second part of the project to sumbit prediction results.
 ### Project report files
 *project.Rmd* and *project.html* are the files (R markdown and HTML formats) that describes the process of data analysis, training, testing and prediction that was held in the project.
+HTML file can be viewed from the link: https://rawgit.com/GNMmad/Practical-ML-project/master/project.html
 ## Code file
 *project.R* is the file that contains the R code that implements the process described in the project report.
